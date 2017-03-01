@@ -15,7 +15,7 @@ module.exports = (robot) ->
   s3_secret_key = process.env.HUBOT_GRAFANA_S3_SECRET_KEY
   s3_region = process.env.HUBOT_GRAFANA_S3_REGION
 
-  robot.respond /(?:grafana|graph|graf) ([A-Za-z0-9\-\:_]+)(.*)?/i, (msg) ->
+  robot.respond /(?:grafana|graph|graf) db ([A-Za-z0-9\-\:_]+)(.*)?/i, (msg) ->
     slug = msg.match[1]
     remainder = msg.match[2]
 
@@ -64,61 +64,58 @@ module.exports = (robot) ->
           timespan[timeFields.shift()] = part.trim()
 
     # Call the API to get information about this dashboard
-    callGrafana "dashboards/db/#{slug}", (dashboard) ->
+    callGrafana("dashboards/db/#{slug}").then(
+      (dashboard) ->
+        if dashboard.dashboard
+          data = dashboard.dashboard
+          apiEndpoint = 'dashboard-solo'
 
-      # Check dashboard information
-      if !dashboard
-        return sendError 'An error ocurred. Check your logs for more details.', msg
-      if dashboard.message
-        return sendError dashboard.message, msg
+        # Support for templated dashboards
+        if data.templating.list
+          template_map = []
+          for template in data.templating.list
+            continue unless template.current
+            for _param in template_params
+              if template.name == _param.name
+                template_map['$' + template.name] = _param.value
+              else
+                template_map['$' + template.name] = template.current.text
 
-      if dashboard.dashboard
-        data = dashboard.dashboard
-        apiEndpoint = 'dashboard-solo'
+        # Return dashboard rows
+        panelNumber = 0
+        for row in data.rows
+          for panel in row.panels
+            panelNumber += 1
 
-      # Support for templated dashboards
-      if data.templating.list
-        template_map = []
-        for template in data.templating.list
-          continue unless template.current
-          for _param in template_params
-            if template.name == _param.name
-              template_map['$' + template.name] = _param.value
-            else
-              template_map['$' + template.name] = template.current.text
+            # Skip if visual panel ID was specified and didn't match
+            if visualPanelId && visualPanelId != panelNumber
+              continue
 
-      # Return dashboard rows
+            # Skip if API panel ID was specified and didn't match
+            if apiPanelId && apiPanelId != panel.id
+              continue
 
-      panelNumber = 0
-      for row in data.rows
-        for panel in row.panels
-          panelNumber += 1
+            # Skip if panel name was specified any didn't match
+            if pname && panel.title.toLowerCase().indexOf(pname) is -1
+              continue
 
-          # Skip if visual panel ID was specified and didn't match
-          if visualPanelId && visualPanelId != panelNumber
-            continue
+            # Build links for message sending
+            title = formatTitleWithTemplate(panel.title, template_map)
 
-          # Skip if API panel ID was specified and didn't match
-          if apiPanelId && apiPanelId != panel.id
-            continue
+            # Fork here for S3-based upload and non-S3
+            if (s3_bucket && s3_access_key && s3_secret_key)
+              imgURL = "#{grafana_host}/render/#{apiEndpoint}/db/#{slug}/?panelId=#{panel.id}&width=1000&height=500&from=#{timespan.from}&to=#{timespan.to}#{variables}"
+              link = "#{grafana_host}/dashboard/db/#{slug}/?panelId=#{panel.id}&fullscreen&from=#{timespan.from}&to=#{timespan.to}#{variables}"
+              processImage msg,title,vchannel,link,imgURL).catch(
+      (err) ->
+        sendError err.message, msg)
 
-          # Skip if panel name was specified any didn't match
-          if pname && panel.title.toLowerCase().indexOf(pname) is -1
-            continue
-
-          # Build links for message sending
-          title = formatTitleWithTemplate(panel.title, template_map)
-          imageUrl = "#{grafana_host}/render/#{apiEndpoint}/db/#{slug}/?panelId=#{panel.id}&width=1000&height=500&from=#{timespan.from}&to=#{timespan.to}#{variables}"
-          link = "#{grafana_host}/dashboard/db/#{slug}/?panelId=#{panel.id}&fullscreen&from=#{timespan.from}&to=#{timespan.to}#{variables}"
-
-          # Fork here for S3-based upload and non-S3
-          if (s3_bucket && s3_access_key && s3_secret_key)
-            postURL = getS3SignedPUTURL()
-            S3ImgURL = postURL.substring(0,postURL.indexOf('?'))
-            fetchAndUpload(imageUrl,postURL).then(
-              (response) ->
-                sendBack msg,title,vchannel,S3ImgURL,link
-            )
+  processImage = (msg,title,vchannel,link,imgURL) ->
+    postURL = getS3SignedPUTURL()
+    S3ImgURL = postURL.substring(0,postURL.indexOf('?'))
+    fetchAndUpload(imgURL,postURL).then(
+      (response) ->
+        sendBack msg,title,vchannel,S3ImgURL,link)
 
   fetchImage = (url) ->
     options =
@@ -164,20 +161,31 @@ module.exports = (robot) ->
   robot.hear /(?:grafana|graph|graf) list\s?(.+)?/i, (msg) ->
     if msg.match[1]
       tag = msg.match[1].trim()
-      callGrafana "search?tag=#{tag}", (dashboards) ->
-        response = "Dashboards tagged `#{tag}`:\n"
-        sendDashboardList dashboards, response, msg
+      console.log 'tag',tag
+      callGrafana("search?tag=#{tag}").then(
+        (dashboards) ->
+          response = "Dashboards tagged `#{tag}`:\n"
+          sendDashboardList dashboards, response, msg).catch(
+        (err) ->
+          sendError err.message, msg)
     else
-      callGrafana 'search', (dashboards) ->
-        response = "Available dashboards:\n"
-        sendDashboardList dashboards, response, msg
+      callGrafana('search').then(
+        (dashboards) ->
+          console.log dashboards
+          response = "Available dashboards:\n"
+          sendDashboardList dashboards, response, msg).catch(
+        (err) ->
+          sendError err.message, msg)
 
   # Search dashboards
   robot.hear /(?:grafana|graph|graf) search (.+)/i, (msg) ->
     query = msg.match[1].trim()
-    callGrafana "search?query=#{query}", (dashboards) ->
-      response = "Dashboards matching `#{query}`:\n"
-      sendDashboardList dashboards, response, msg
+    callGrafana("search?query=#{query}").then(
+      (dashboards) ->
+        response = "Dashboards matching `#{query}`:\n"
+        sendDashboardList dashboards, response, msg).catch(
+      (err) ->
+        sendError err.message, msg)
 
   # Send Dashboard list
   sendDashboardList = (dashboards, response, msg) ->
@@ -215,19 +223,20 @@ module.exports = (robot) ->
       else
         return match
 
-  # Call off to Grafana
-  callGrafana = (url, callback) ->
-    if grafana_api_key
-      authHeader =
-        'Accept': 'application/json',
+  callGrafana = (query) ->
+    url = "#{grafana_host}/api/#{query}"
+    options =
+      transform: (body, response, resolveWithFullResponse) ->
+        if !body
+          throw new Error('Transform failed!')
+        if body and body.message
+          throw new Error(body.message)
+        if body and body.length == 0
+          throw new Error('no result')
+        return body
+      uri: url
+      method: 'GET'
+      json: true
+      headers:
         'Authorization': "Bearer #{grafana_api_key}"
-    else
-      authHeader =
-        'Accept': 'application/json'
-
-    robot.http("#{grafana_host}/api/#{url}").headers(authHeader).get() (err, res, body) ->
-      if (err)
-        robot.logger.error err
-        return callback(false)
-      data = JSON.parse(body)
-      return callback(data)
+    rp options
