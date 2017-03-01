@@ -1,6 +1,10 @@
 
 
 
+> direct message hubot
+
+![demo](https://raw.githubusercontent.com/bearyinnovative/hubot-grafana/master/assets/demo.jpeg)
+
 
 
 ## Hubot Grafana
@@ -18,7 +22,7 @@
 ## deploy to Heroku 
 - create Heroku account if you dont have already
 
-- Heroku login
+- `heroku login`
 
 - download source code of hubot-grafana
 
@@ -28,7 +32,8 @@
 
 - `heroku addons:create rediscloud`
 
-- ```
+- setup environment variables
+```
   heroku config:set HUBOT_GRAFANA_HOST=http://example.com
   heroku config:set HUBOT_GRAFANA_API_KEY=YOUR_GRAFANA_API_KEY
 
@@ -39,7 +44,7 @@
   heroku config:set HUBOT_BEARYCHAT_TOKENS=YOUR_BEARYCHAT_TOKEN
 
   heroku HUBOT_BEARYCHAT_MODE=http
-  ```
+```
 
 - `git push heroku  master`
 
