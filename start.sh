@@ -1,0 +1,14 @@
+#!/bin/bash
+
+export HUBOT_GRAFANA_HOST=http://grafana.beary.chat
+export HUBOT_GRAFANA_API_KEY=eyJrIjoiZ3lvd1IxaUxvNHlybHdBWGpqYWVxMGRlSjFYMkRnNEEiLCJuIjoiYmVhcnkiLCJpZCI6MX0=
+
+export HUBOT_GRAFANA_S3_BUCKET=beary-grafana
+export HUBOT_GRAFANA_S3_ACCESS_KEY=AKIAOE3P2KP27IITOJRA
+export HUBOT_GRAFANA_S3_SECRET_KEY=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
+export HUBOT_GRAFANA_S3_REGION=cn-north-1
+
+export HUBOT_BEARYCHAT_TOKENS=6124e05936d1d53614a216c9989ce996
+export HUBOT_BEARYCHAT_MODE=http
+
+bin/hubot --adapter bearychat
